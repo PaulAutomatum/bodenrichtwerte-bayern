@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Bodenrichtwerte Bayern</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Instrument+Serif&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+/* Layout: Karte füllt den Bildschirm, links ein schmales Auskunftsblatt; am Handy Karte oben, Blatt darunter. */
+:root{
+  --paper:#f6f5f1; --panel:#fbfaf7; --ink:#1f2321; --muted:#626a66; --rule:#d9d7cf;
+  --accent:#9c2f1c; --chip:#ecebe5; --chip-on:#1f2321; --chip-on-ink:#fbfaf7;
+  --zone-line:rgba(31,35,33,.55); --nodata:#9aa29d; --tile-filter:none;
+  --f-display:"Instrument Serif",Georgia,serif;
+  --f-body:"Instrument Sans",system-ui,-apple-system,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --paper:#151716; --panel:#1b1e1c; --ink:#e9e7e0; --muted:#9aa29d; --rule:#333835;
+  --accent:#f08a5d; --chip:#262a28; --chip-on:#e9e7e0; --chip-on-ink:#151716;
+  --zone-line:rgba(233,231,224,.45); --nodata:#5d6561;
+  --tile-filter:invert(1) hue-rotate(180deg) brightness(.78) contrast(.9); color-scheme:dark}}
+html,body{height:100%;margin:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--f-body);font-size:14px}
+.app{display:grid;grid-template-columns:360px 1fr;height:100%}
+aside{background:var(--panel);border-right:1px solid var(--rule);overflow-y:auto;padding-block:20px 28px;padding-inline:20px;display:flex;flex-direction:column;gap:18px;min-width:0}
+.mapwrap{position:relative;min-width:0}
+#map{position:absolute;inset:0;background:var(--paper)}
+@media (max-width:760px){
+  .app{grid-template-columns:1fr;grid-template-rows:62vh auto;height:auto}
+  .mapwrap{height:62vh}
+  aside{order:2;border-right:0;border-top:1px solid var(--rule);overflow:visible;padding-inline:16px}
+}
+.eyebrow{font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h1{font-family:var(--f-display);font-weight:400;font-size:34px;line-height:1.05;margin:4px 0 6px;text-wrap:balance}
+.lede{color:var(--muted);line-height:1.5;margin:0}
+.block{display:flex;flex-direction:column;gap:8px}
+.label{font-size:12px;font-weight:600;color:var(--muted)}
+.seg{display:grid;grid-template-columns:repeat(var(--n,3),1fr);border:1px solid var(--rule);border-radius:8px;overflow:hidden}
+.seg button{all:unset;cursor:pointer;text-align:center;padding:7px 4px;font-size:13px;font-weight:500;color:var(--ink)}
+.seg button+button{border-left:1px solid var(--rule)}
+.seg button[aria-pressed="true"]{background:var(--chip-on);color:var(--chip-on-ink)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips button{all:unset;cursor:pointer;font-size:12px;padding:4px 10px;border-radius:999px;background:var(--chip);color:var(--ink)}
+.chips button[aria-pressed="false"]{opacity:.45;text-decoration:line-through}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.switch{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px}
+input[type=range]{width:140px;accent-color:var(--accent)}
+.search{position:relative}
+input[type=search]{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--rule);border-radius:8px;background:var(--paper);color:var(--ink);font:inherit}
+.hits{list-style:none;margin:4px 0 0;padding:0;border:1px solid var(--rule);border-radius:8px;background:var(--paper);overflow:hidden}
+.hits button{all:unset;box-sizing:border-box;width:100%;cursor:pointer;padding:7px 10px;font-size:13px;display:block}
+.hits li+li button{border-top:1px solid var(--rule)}
+.hits button:hover{background:var(--chip)}
+.legend canvas{width:100%;height:12px;display:block;border-radius:2px}
+.ticks{position:relative;height:16px;font-family:var(--f-mono);font-size:11px;color:var(--muted)}
+.ticks span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.ticks span:first-child{transform:none}.ticks span:last-child{transform:translateX(-100%)}
+.hist{width:100%;height:46px;display:block}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stats div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.stats b{font-family:var(--f-mono);font-weight:500;font-size:15px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stats small{color:var(--muted);font-size:11px}
+.card{border:1px solid var(--rule);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px;background:var(--paper)}
+.card .val{font-family:var(--f-mono);font-size:28px;font-weight:500;font-variant-numeric:tabular-nums}
+.card .val small{font-size:13px;color:var(--muted);margin-left:4px}
+.card h2{margin:0;font-family:var(--f-display);font-weight:400;font-size:22px;line-height:1.15}
+.card dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:0;font-size:12.5px}
+.card dt{color:var(--muted)} .card dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.card a{color:var(--accent)}
+.empty{color:var(--muted);font-size:13px;line-height:1.5;margin:0}
+.swatch{display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--nodata);margin-right:6px;vertical-align:0}
+ol.rank{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+ol.rank li button{all:unset;box-sizing:border-box;width:100%;cursor:pointer;display:grid;grid-template-columns:14px 1fr auto;gap:10px;align-items:center;padding:6px 4px;border-bottom:1px solid var(--rule);font-size:13px}
+ol.rank li button:hover{background:var(--chip)}
+ol.rank .sw{width:14px;height:14px;border-radius:3px}
+ol.rank .n{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ol.rank .v{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.foot{font-size:11.5px;color:var(--muted);line-height:1.5;margin:0}
+.foot a{color:inherit}
+.status{position:absolute;z-index:500;left:50%;top:12px;transform:translateX(-50%);background:var(--panel);color:var(--ink);border:1px solid var(--rule);border-radius:999px;padding:6px 14px;font-size:12.5px;display:flex;gap:10px;align-items:center;white-space:nowrap;max-width:calc(100% - 120px)}
+.status .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.status.busy .dot{background:var(--accent);animation:pulse 1s ease-in-out infinite}
+.status span{overflow:hidden;text-overflow:ellipsis}
+@keyframes pulse{50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.status.busy .dot{animation:none}}
+.soft .leaflet-zones-pane{filter:blur(9px) saturate(1.15)}
+.leaflet-tile-pane{filter:var(--tile-filter)}
+.leaflet-container{font-family:var(--f-body)}
+.leaflet-tooltip.brw{background:var(--panel);color:var(--ink);border:1px solid var(--rule);box-shadow:none;font-size:12px;padding:4px 8px}
+.leaflet-tooltip.brw::before{display:none}
+.leaflet-tooltip.brw b{font-family:var(--f-mono);font-weight:500}
+.leaflet-control-attribution{font-size:10px}
+.leaflet-bar a{background:var(--panel);color:var(--ink);border-color:var(--rule)}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <header>
+      <div class="eyebrow">Stichtag 01.01.2026 · €/m² · live</div>
+      <h1>Bodenrichtwerte Bayern</h1>
+      <p class="lede">Die Zonen werden beim Verschieben der Karte direkt beim Landesamt abgefragt. Ab Zoomstufe 13 lädt die Karte, kleine Zonen erscheinen beim weiteren Hineinzoomen.</p>
+    </header>
+
+    <div class="block search">
+      <label class="label" for="q">Ort suchen</label>
+      <input type="search" id="q" placeholder="z. B. Ingolstadt Altstadt, Freising, Rosenheim …" autocomplete="off">
+      <ul class="hits" id="hits" hidden></ul>
+    </div>
+
+    <div class="block">
+      <span class="label">Flächenart</span>
+      <div class="seg" role="group" aria-label="Flächenart">
+        <button data-mode="bau" aria-pressed="true">Bauland</button>
+        <button data-mode="agr" aria-pressed="false">Agrar &amp; Forst</button>
+        <button data-mode="all" aria-pressed="false">Alle</button>
+      </div>
+      <div class="chips" id="chips"></div>
+    </div>
+
+    <div class="block legend">
+      <div class="row"><span class="label">Farbskala (logarithmisch, €/m²)</span></div>
+      <div class="seg" role="group" aria-label="Skala" style="--n:2">
+        <button data-scale="view" aria-pressed="true">An Ausschnitt anpassen</button>
+        <button data-scale="fix" aria-pressed="false">Bayernweit fest</button>
+      </div>
+      <canvas id="ramp" width="320" height="12"></canvas>
+      <div class="ticks" id="ticks"></div>
+      <canvas class="hist" id="hist" width="640" height="92" aria-label="Verteilung der Zonen im Ausschnitt"></canvas>
+      <p class="empty" id="lock" hidden><span class="swatch"></span><b id="lockN">0</b> Zonen im Ausschnitt ohne freigegebenen Wert (grau). Der zuständige Gutachterausschuss gibt sie nur gegen Gebühr heraus.</p>
+      <div class="stats">
+        <div><small>Zonen im Bild</small><b id="sN">–</b></div>
+        <div><small>Median</small><b id="sMed">–</b></div>
+        <div><small>Spanne</small><b id="sRange">–</b></div>
+      </div>
+    </div>
+
+    <div class="block">
+      <span class="label">Grundkarte</span>
+      <div class="seg" role="group" aria-label="Grundkarte" style="--n:2">
+        <button data-base="by_webkarte_grau" aria-pressed="true">Grau</button>
+        <button data-base="by_webkarte" aria-pressed="false">Farbig</button>
+      </div>
+      <label class="switch" for="soft"><input type="checkbox" id="soft"> Weich (Heatmap-Look)</label>
+      <div class="row">
+        <label class="label" for="opacity">Deckkraft</label>
+        <input type="range" id="opacity" min="20" max="100" value="72">
+      </div>
+    </div>
+
+    <div class="card" id="detail"><p class="empty">Noch keine Zone gewählt. Tippe in der Karte auf eine Fläche oder wähle unten einen Eintrag.</p></div>
+
+    <div class="block">
+      <span class="label">Höchste Werte im Ausschnitt</span>
+      <ol class="rank" id="rank"></ol>
+    </div>
+
+    <p class="foot">
+      Quelle: WMS „Bodenrichtwerte in Bayern 2026“ der Gutachterausschüsse über das LDBV (gdi.bayern.de), kostenfrei für private Nutzung. Diese Ansicht ersetzt keine amtliche Bodenrichtwertauskunft.
+      Grundkarte: Webkarte © Bayerische Vermessungsverwaltung, CC BY 4.0. Ortssuche: © OpenStreetMap-Mitwirkende (Nominatim).
+    </p>
+  </aside>
+  <div class="mapwrap">
+    <div id="map" role="application" aria-label="Karte der Bodenrichtwertzonen"></div>
+    <div class="status" id="status" role="status"><i class="dot"></i><span id="statusText">Bereit</span></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+(() => {
+  // ---------- Dienste ----------
+  const WMS = 'https://gdi.bayern.de/services/bodenrichtwerte/2026/vboris';
+  const WMTS = (layer) => `https://wmtsod1.bayernwolke.de/wmts/${layer}/smerc/{z}/{x}/{y}`;
+  const MIN_LOAD_ZOOM = 13;
+  const CONCURRENCY = 6;
+  const MAX_QUERIES_PER_VIEW = 1500;
+
+  // ---------- UTM 32N (ETRS89) <-> geographisch, Krüger-Reihen ----------
+  const a = 6378137, f = 1 / 298.257222101, k0 = 0.9996, lon0 = 9 * Math.PI / 180;
+  const n = f / (2 - f), A = a / (1 + n) * (1 + n * n / 4 + n ** 4 / 64);
+  const al = [0, n / 2 - 2 * n * n / 3 + 5 * n ** 3 / 16, 13 * n * n / 48 - 3 * n ** 3 / 5, 61 * n ** 3 / 240];
+  const be = [0, n / 2 - 2 * n * n / 3 + 37 * n ** 3 / 96, n * n / 48 + n ** 3 / 15, 17 * n ** 3 / 480];
+  const de = [0, 2 * n - 2 * n * n / 3 - 2 * n ** 3, 7 * n * n / 3 - 8 * n ** 3 / 5, 56 * n ** 3 / 15];
+  const c2 = 2 * Math.sqrt(n) / (1 + n);
+  const toUtm = (lat, lon) => {
+    const phi = lat * Math.PI / 180, lam = lon * Math.PI / 180 - lon0;
+    const t = Math.sinh(Math.atanh(Math.sin(phi)) - c2 * Math.atanh(c2 * Math.sin(phi)));
+    const xi = Math.atan(t / Math.cos(lam)), eta = Math.atanh(Math.sin(lam) / Math.sqrt(1 + t * t));
+    let E = eta, N = xi;
+    for (let j = 1; j <= 3; j++) { E += al[j] * Math.cos(2 * j * xi) * Math.sinh(2 * j * eta); N += al[j] * Math.sin(2 * j * xi) * Math.cosh(2 * j * eta); }
+    return [500000 + k0 * A * E, k0 * A * N];
+  };
+  const fromUtm = (E, N) => {
+    const x = N / (k0 * A), y = (E - 500000) / (k0 * A);
+    let xp = x, yp = y;
+    for (let j = 1; j <= 3; j++) { xp -= be[j] * Math.sin(2 * j * x) * Math.cosh(2 * j * y); yp -= be[j] * Math.cos(2 * j * x) * Math.sinh(2 * j * y); }
+    const chi = Math.asin(Math.sin(xp) / Math.cosh(yp));
+    let lat = chi;
+    for (let j = 1; j <= 3; j++) lat += de[j] * Math.sin(2 * j * chi);
+    return [lat * 180 / Math.PI, (lon0 + Math.atan(Math.sinh(yp) / Math.cos(xp))) * 180 / Math.PI];
+  };
+
+  // ---------- Hilfen ----------
+  const num = (s) => {
+    if (s == null) return NaN;
+    if (typeof s === 'number') return s;
+    const v = parseFloat(String(s).trim().replace(/\./g, '').replace(',', '.'));
+    return Number.isFinite(v) ? v : NaN;
+  };
+  const fmt = (v) => !Number.isFinite(v) ? '–' : v >= 100 ? Math.round(v).toLocaleString('de-DE') : v.toLocaleString('de-DE', {maximumFractionDigits: 1});
+  const groupOf = (p) => p.entwicklungszustand === 'Baureifes Land' || p.entwicklungszustand === 'Rohbauland' || p.entwicklungszustand === 'Bauerwartungsland' ? 'bau'
+    : p.entwicklungszustand === 'Fläche der Land- oder Forstwirtschaft' ? 'agr' : 'sonst';
+  const SHORT = {
+    'Wohnbaufläche': 'Wohnen', 'Wohngebiet': 'Wohnen', 'Allgemeines Wohngebiet': 'Wohnen', 'Reines Wohngebiet': 'Wohnen',
+    'gemischte Baufläche': 'Gemischt', 'Mischgebiet': 'Gemischt', 'Kerngebiet': 'Kerngebiet', 'Dorfgebiet': 'Dorfgebiet',
+    'gewerbliche Baufläche': 'Gewerbe', 'Gewerbegebiet': 'Gewerbe', 'Industriegebiet': 'Industrie',
+    'sonstige Sondergebiete (§11 BauNVO)': 'Sondergebiet', 'Sondergebiet für Erholung (§10 BauNVO)': 'Erholung',
+    'Landwirtschaftliche Fläche': 'Landwirtschaft', 'Acker': 'Acker', 'Grünland': 'Grünland',
+    'Forstwirtschaftliche Fläche': 'Forst', 'Kleingartenfläche': 'Kleingärten'
+  };
+  const shortUse = (u) => SHORT[u] || (u && u !== '-' ? u : 'ohne Angabe');
+  const nichtFrei = (p) => p.bodenrichtwert && !/^[\d.,\s]+$/.test(p.bodenrichtwert) ? `${p.bodenrichtwert} (beim Gutachterausschuss)` : 'Wert nicht freigegeben';
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'})[c]);
+  const cssVar = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+  // Wärmeskala: hell-gelb → orange → rot → tiefes Violett
+  const STOPS = [[0, [255, 240, 170]], [.25, [253, 190, 90]], [.5, [240, 110, 50]], [.75, [190, 35, 55]], [1, [85, 15, 85]]];
+  const ramp = (t) => {
+    t = Math.max(0, Math.min(1, t));
+    for (let i = 1; i < STOPS.length; i++) {
+      const [t1, c1] = STOPS[i], [t0, c0] = STOPS[i - 1];
+      if (t <= t1) { const k = (t - t0) / (t1 - t0); return `rgb(${c0.map((c, j) => Math.round(c + (c1[j] - c) * k)).join(',')})`; }
+    }
+  };
+  const FIXED = {bau: [20, 20000], agr: [0.5, 30], all: [0.5, 20000]};
+
+  // ---------- Karte ----------
+  const BAYERN = L.latLngBounds([47.2, 8.9], [50.6, 13.9]);
+  const start = (() => {
+    const m = location.hash.match(/^#(\d+(?:\.\d+)?)\/(-?\d+\.\d+)\/(-?\d+\.\d+)/);
+    return m ? {z: +m[1], c: [+m[2], +m[3]]} : {z: 15, c: [48.7637, 11.4246]};
+  })();
+  const map = L.map('map', {zoomSnap: .5, minZoom: 7, maxZoom: 19, maxBounds: BAYERN.pad(.2)}).setView(start.c, start.z);
+  const baseOpts = {maxNativeZoom: 18, maxZoom: 19, attribution: 'Webkarte © <a href="https://geodaten.bayern.de/opengeodata/" target="_blank" rel="noopener">Bayer. Vermessungsverwaltung</a> CC BY 4.0 · BRW: Gutachterausschüsse / LDBV'};
+  let base = L.tileLayer(WMTS('by_webkarte_grau'), baseOpts).addTo(map);
+  map.createPane('zones');
+  map.getPane('zones').style.zIndex = 410;
+  const renderer = L.canvas({pane: 'zones', padding: .3});
+
+  // ---------- Zustand ----------
+  const state = {mode: 'bau', scale: 'view', off: new Set(), opacity: .72, sel: null};
+  const zones = new Map();      // pk -> {p, wert, frei, layer, bb:[minE,minN,maxE,maxN], rings:[[outer,...holes] in UTM]}
+  const emptyCells = new Set(); // Abfragepunkte ohne Zone (5-m-Raster)
+  let scale = [1, 10];
+
+  // ---------- Punkt-in-Zone (in UTM) ----------
+  const inRing = (x, y, r) => {
+    let c = false;
+    for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+      const [xi, yi] = r[i], [xj, yj] = r[j];
+      if ((yi > y) !== (yj > y) && x < xi + (y - yi) * (xj - xi) / (yj - yi)) c = !c;
+    }
+    return c;
+  };
+  const covered = (E, N) => {
+    for (const z of zones.values()) {
+      const b = z.bb;
+      if (E < b[0] || E > b[2] || N < b[1] || N > b[3]) continue;
+      for (const poly of z.rings) {
+        if (inRing(E, N, poly[0]) && !poly.slice(1).some((h) => inRing(E, N, h))) return true;
+      }
+    }
+    return false;
+  };
+
+  // ---------- Abfrage ----------
+  async function queryAt(E, N) {
+    const h = 10, px = 1000; // 2 cm je Pixel -> der Server liefert die volle Geometrie
+    const url = `${WMS}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetFeatureInfo&LAYERS=bodenrichtwerte_2026&QUERY_LAYERS=bodenrichtwerte_2026&STYLES=&SRS=EPSG:25832`
+      + `&BBOX=${(E - h).toFixed(2)},${(N - h).toFixed(2)},${(E + h).toFixed(2)},${(N + h).toFixed(2)}&WIDTH=${px}&HEIGHT=${px}&X=${px / 2}&Y=${px / 2}&FEATURE_COUNT=50&INFO_FORMAT=application/json`;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(r.status);
+        return (await r.json()).features || [];
+      } catch (e) {
+        await new Promise((res) => setTimeout(res, 400 * (attempt + 1)));
+      }
+    }
+    stats.errors++;
+    return null;
+  }
+
+  function addFeature(feat) {
+    const p = feat.properties || {};
+    if (zones.has(p.pk) || !feat.geometry) return false;
+    const g = feat.geometry;
+    const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+    let bb = [Infinity, Infinity, -Infinity, -Infinity];
+    polys.forEach((poly) => poly[0].forEach(([x, y]) => { bb = [Math.min(bb[0], x), Math.min(bb[1], y), Math.max(bb[2], x), Math.max(bb[3], y)]; }));
+    const latlngs = polys.map((poly) => poly.map((ring) => ring.map(([x, y]) => fromUtm(x, y))));
+    const wert = num(p.bodenrichtwert);
+    const frei = p.showbrw !== false && Number.isFinite(wert);
+    const layer = L.polygon(latlngs, {renderer, pane: 'zones', weight: .6, fillOpacity: state.opacity});
+    const z = {p, wert, frei, layer, bb, rings: polys};
+    layer.bindTooltip(() => `${esc(p.bodenrichtwertszonenname || 'Zone')} · ${esc(p.gemeinde_name || '')}<br><b>${z.frei ? fmt(wert) + ' €/m²' : esc(nichtFrei(p))}</b> · ${esc(shortUse(p.nutzungsart))}`,
+      {className: 'brw', sticky: true, direction: 'top', offset: [0, -6]});
+    layer.on('click', () => select(z));
+    layer.on('mouseover', () => layer.setStyle({weight: 2.2}));
+    layer.on('mouseout', () => layer.setStyle({weight: state.sel === z ? 2.6 : .6}));
+    zones.set(p.pk, z);
+    return true;
+  }
+
+  // ---------- Lade-Warteschlange: grob nach fein, nur Lücken abfragen ----------
+  const stats = {queries: 0, open: 0, errors: 0};
+  let gen = 0;
+  async function loadView() {
+    const my = ++gen;
+    if (map.getZoom() < MIN_LOAD_ZOOM) { setStatus(false, `Zum Laden auf Stufe ${MIN_LOAD_ZOOM} heranzoomen (jetzt ${map.getZoom()}) · ${zones.size} Zonen im Speicher`); return; }
+    const z = map.getZoom();
+    const b = map.getPixelBounds();
+    const spacings = z >= 16 ? [192, 96, 48, 24, 12] : z >= 15 ? [192, 96, 48, 24] : z >= 14 ? [160, 80, 40, 20] : [128, 64, 32];
+    let sent = 0;
+    for (const s of spacings) {
+      const pts = [];
+      for (let x = Math.ceil(b.min.x / s) * s; x <= b.max.x; x += s)
+        for (let y = Math.ceil(b.min.y / s) * s; y <= b.max.y; y += s) pts.push([x, y]);
+      // von der Bildmitte nach außen
+      const cx = (b.min.x + b.max.x) / 2, cy = (b.min.y + b.max.y) / 2;
+      pts.sort((p, q) => Math.hypot(p[0] - cx, p[1] - cy) - Math.hypot(q[0] - cx, q[1] - cy));
+      let i = 0;
+      const worker = async () => {
+        while (i < pts.length && my === gen && sent < MAX_QUERIES_PER_VIEW) {
+          const [px, py] = pts[i++];
+          const ll = map.unproject([px, py], z);
+          const [E, N] = toUtm(ll.lat, ll.lng);
+          const cell = `${Math.round(E / 5)},${Math.round(N / 5)}`;
+          if (emptyCells.has(cell) || covered(E, N)) continue;
+          sent++; stats.queries++; stats.open++;
+          setStatus(true);
+          const fs = await queryAt(E, N);
+          stats.open--;
+          if (fs === null) continue;
+          let added = 0;
+          fs.forEach((f) => { if (addFeature(f)) added++; });
+          if (!fs.length) emptyCells.add(cell);
+          if (added) scheduleRender();
+        }
+      };
+      await Promise.all(Array.from({length: CONCURRENCY}, worker));
+      if (my !== gen) return;
+    }
+    setStatus(false, sent >= MAX_QUERIES_PER_VIEW ? 'Abfragegrenze für diesen Ausschnitt erreicht, für mehr hineinzoomen' : null);
+    scheduleRender();
+  }
+  function setStatus(busy, text) {
+    const el = document.getElementById('status');
+    el.classList.toggle('busy', busy);
+    document.getElementById('statusText').textContent = text
+      || (busy ? `Lade Zonen … ${stats.open} Abfragen offen · ${zones.size} Zonen geladen`
+               : `${zones.size} Zonen geladen · ${stats.queries} Abfragen${stats.errors ? ` · ${stats.errors} fehlgeschlagen` : ''}`);
+  }
+
+  // ---------- Darstellung ----------
+  let raf = 0;
+  const scheduleRender = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; render(); }); };
+  const inMode = (z) => !z.frei || state.mode === 'all' || groupOf(z.p) === state.mode;
+  const shown = (z) => inMode(z) && !(z.frei && state.off.has(shortUse(z.p.nutzungsart)));
+  const tOf = (v) => (Math.log(v) - Math.log(scale[0])) / (Math.log(scale[1]) - Math.log(scale[0]) || 1);
+
+  function render() {
+    const view = map.getBounds();
+    const inView = [...zones.values()].filter((z) => shown(z) && view.intersects(z.layer.getBounds()));
+    const vals = inView.filter((z) => z.frei).map((z) => z.wert);
+    if (state.scale === 'fix' || !vals.length) scale = FIXED[state.mode];
+    else { scale = [Math.min(...vals), Math.max(...vals)]; if (scale[1] / scale[0] < 1.5) scale = [scale[0] / 1.25, scale[1] * 1.25]; }
+    const lc = cssVar('--zone-line'), acc = cssVar('--accent'), nd = cssVar('--nodata');
+    zones.forEach((z) => {
+      const on = shown(z);
+      if (on && !map.hasLayer(z.layer)) z.layer.addTo(map);
+      if (!on && map.hasLayer(z.layer)) map.removeLayer(z.layer);
+      if (on) z.layer.setStyle({fillColor: z.frei ? ramp(tOf(z.wert)) : nd, fillOpacity: state.opacity,
+        color: state.sel === z ? acc : lc, weight: state.sel === z ? 2.6 : .6});
+    });
+    if (state.sel && map.hasLayer(state.sel.layer)) state.sel.layer.bringToFront();
+    drawLegend(); drawHist(inView); drawStats(inView); drawRank(inView); drawChips();
+    const gesperrt = inView.filter((z) => !z.frei).length;
+    document.getElementById('lock').hidden = !gesperrt;
+    document.getElementById('lockN').textContent = gesperrt;
+    if (!stats.open) setStatus(false);
+  }
+
+  function drawLegend() {
+    const c = document.getElementById('ramp'), x = c.getContext('2d');
+    for (let i = 0; i < c.width; i++) { x.fillStyle = ramp(i / (c.width - 1)); x.fillRect(i, 0, 1, c.height); }
+    const lo = Math.log(scale[0]), hi = Math.log(scale[1]);
+    const nice = [0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000].filter((v) => { const t = (Math.log(v) - lo) / (hi - lo || 1); return t > .14 && t < .86; });
+    const pick = nice.length > 3 ? [nice[0], nice[Math.floor(nice.length / 2)], nice[nice.length - 1]] : nice;
+    document.getElementById('ticks').innerHTML = [scale[0], ...pick, scale[1]].map((v) =>
+      `<span style="left:${((Math.log(v) - lo) / (hi - lo || 1)) * 100}%">${fmt(v)}</span>`).join('');
+  }
+  function drawHist(list) {
+    const c = document.getElementById('hist'), x = c.getContext('2d');
+    x.clearRect(0, 0, c.width, c.height);
+    const B = 32, bins = new Array(B).fill(0);
+    list.filter((z) => z.frei).forEach((z) => { bins[Math.max(0, Math.min(B - 1, Math.floor(tOf(z.wert) * B)))]++; });
+    const m = Math.max(1, ...bins), bw = c.width / B;
+    bins.forEach((k, i) => { if (!k) return; const h = (k / m) * (c.height - 4); x.fillStyle = ramp((i + .5) / B); x.fillRect(i * bw + 1, c.height - h, bw - 2, h); });
+  }
+  function drawStats(list) {
+    const v = list.filter((z) => z.frei).map((z) => z.wert).sort((a, b) => a - b);
+    document.getElementById('sN').textContent = list.length;
+    document.getElementById('sMed').textContent = v.length ? fmt(v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2) : '–';
+    document.getElementById('sRange').textContent = v.length ? `${fmt(v[0])}–${fmt(v[v.length - 1])}` : '–';
+  }
+  function drawRank(list) {
+    const ol = document.getElementById('rank');
+    ol.innerHTML = '';
+    list.filter((z) => z.frei).sort((a, b) => b.wert - a.wert).slice(0, 12).forEach((z) => {
+      const li = document.createElement('li'), b = document.createElement('button');
+      b.innerHTML = `<span class="sw" style="background:${ramp(tOf(z.wert))}"></span><span class="n"></span><span class="v">${fmt(z.wert)}</span>`;
+      b.querySelector('.n').textContent = `${z.p.bodenrichtwertszonenname || 'Zone'} · ${shortUse(z.p.nutzungsart)}`;
+      b.addEventListener('click', () => { select(z); map.flyToBounds(z.layer.getBounds(), {maxZoom: 17, duration: .6}); });
+      li.append(b); ol.append(li);
+    });
+    if (!ol.children.length) ol.innerHTML = `<li class="empty">${map.getZoom() < MIN_LOAD_ZOOM ? 'Hineinzoomen, um Zonen zu laden.' : 'Noch keine Zone im Ausschnitt.'}</li>`;
+  }
+  let lastChips = '';
+  function drawChips() {
+    const uses = [...new Set([...zones.values()].filter((z) => z.frei && inMode(z)).map((z) => shortUse(z.p.nutzungsart)))].sort();
+    const key = uses.join('|') + '#' + [...state.off].join('|');
+    if (key === lastChips) return;
+    lastChips = key;
+    const box = document.getElementById('chips');
+    box.innerHTML = '';
+    uses.forEach((u) => {
+      const b = document.createElement('button');
+      b.textContent = u;
+      b.setAttribute('aria-pressed', String(!state.off.has(u)));
+      b.addEventListener('click', () => { state.off.has(u) ? state.off.delete(u) : state.off.add(u); render(); });
+      box.append(b);
+    });
+  }
+
+  const LABELS = {
+    gemeinde_name: 'Gemeinde', ortsteilname: 'Ortsteil', nutzungsart: 'Nutzungsart', ergaenzung_nutzungsart: 'Ergänzung',
+    entwicklungszustand: 'Entwicklungszustand', beitrag_und_abgabe_zustand: 'Beitragszustand',
+    geschossflaechenzahl: 'GFZ', grundflaechenzahl: 'GRZ', geschosszahl: 'Geschosse', bauweise: 'Bauweise',
+    flaeche: 'Grundstücksfläche', bemerkungen: 'Bemerkung', gutachterausschuss_name: 'Gutachterausschuss'
+  };
+  function select(z) {
+    state.sel = z;
+    const p = z.p, d = document.getElementById('detail');
+    const rows = Object.entries(LABELS).filter(([k]) => p[k] != null && p[k] !== '' && p[k] !== 'Keine Angabe' && p[k] !== '-')
+      .map(([k, l]) => `<dt>${l}</dt><dd>${esc(p[k])}</dd>`).join('');
+    const link = /^https:\/\//.test(p.listeumrechnungstabellen || '') ? `<a href="${esc(p.listeumrechnungstabellen)}" target="_blank" rel="noopener">Umrechnung &amp; Erläuterung (PDF)</a>` : '';
+    d.innerHTML = `<div class="eyebrow">Richtwertzone ${esc(p.bodenrichtwertnummer ?? '')} · Stichtag ${esc(p.stichtag ?? '')}</div>
+      <h2>${esc(p.bodenrichtwertszonenname || 'Zone')}</h2>
+      <div class="val">${z.frei ? fmt(z.wert) + '<small>€/m²</small>' : `<small>${esc(nichtFrei(p))}</small>`}</div>
+      <dl>${rows}</dl>${link}`;
+    render();
+  }
+
+  // ---------- Ortssuche (Nominatim, auf Bayern begrenzt) ----------
+  const q = document.getElementById('q'), hits = document.getElementById('hits');
+  let qTimer = 0, qCtl = null;
+  q.addEventListener('input', () => {
+    clearTimeout(qTimer);
+    const term = q.value.trim();
+    if (term.length < 3) { hits.hidden = true; return; }
+    qTimer = setTimeout(async () => {
+      qCtl?.abort(); qCtl = new AbortController();
+      try {
+        const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&countrycodes=de&bounded=1&viewbox=8.9,50.6,13.9,47.2&q=${encodeURIComponent(term)}`, {signal: qCtl.signal});
+        const res = await r.json();
+        hits.innerHTML = '';
+        res.forEach((h) => {
+          const li = document.createElement('li'), b = document.createElement('button');
+          b.textContent = h.display_name.split(',').slice(0, 3).join(',');
+          b.addEventListener('click', () => {
+            hits.hidden = true; q.value = b.textContent;
+            const bb = h.boundingbox.map(Number);
+            map.flyToBounds([[bb[0], bb[2]], [bb[1], bb[3]]], {maxZoom: 16, duration: .8});
+          });
+          li.append(b); hits.append(li);
+        });
+        if (!res.length) hits.innerHTML = '<li class="empty" style="padding:7px 10px">Kein Treffer in Bayern.</li>';
+        hits.hidden = false;
+      } catch (e) { if (e.name !== 'AbortError') { hits.innerHTML = '<li class="empty" style="padding:7px 10px">Ortssuche gerade nicht erreichbar.</li>'; hits.hidden = false; } }
+    }, 350);
+  });
+  q.addEventListener('keydown', (e) => { if (e.key === 'Enter') hits.querySelector('button')?.click(); });
+
+  // ---------- Bedienung ----------
+  const segBind = (attr, fn) => document.querySelectorAll(`[data-${attr}]`).forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll(`[data-${attr}]`).forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    fn(b.dataset[attr]);
+  }));
+  segBind('mode', (v) => { state.mode = v; state.off.clear(); lastChips = ''; render(); });
+  segBind('scale', (v) => { state.scale = v; render(); });
+  segBind('base', (v) => { map.removeLayer(base); base = L.tileLayer(WMTS(v), baseOpts).addTo(map); base.bringToBack(); });
+  document.getElementById('soft').addEventListener('change', (e) => document.getElementById('map').classList.toggle('soft', e.target.checked));
+  document.getElementById('opacity').addEventListener('input', (e) => { state.opacity = e.target.value / 100; render(); });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
+
+  let moveTimer = 0;
+  map.on('moveend', () => {
+    const c = map.getCenter();
+    history.replaceState(null, '', `#${map.getZoom()}/${c.lat.toFixed(5)}/${c.lng.toFixed(5)}`);
+    scheduleRender();
+    clearTimeout(moveTimer);
+    moveTimer = setTimeout(loadView, 250);
+  });
+  render();
+  loadView();
+})();
+</script>
+</body>
+</html>
